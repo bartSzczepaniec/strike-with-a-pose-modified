@@ -457,9 +457,9 @@ if __name__ == "__main__":
 
         # v2
         if dir.split("_")[-1] == "1":
-            IMAGES_NUMBER = 10
+            IMAGES_NUMBER = 1000
         else:
-            IMAGES_NUMBER = 40
+            IMAGES_NUMBER = 4000
 
         for i in range(IMAGES_NUMBER):
             if OPTIM == "fd":
