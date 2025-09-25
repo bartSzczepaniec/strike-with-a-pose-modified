@@ -1,3 +1,7 @@
+import os
+import math
+from datetime import datetime
+
 import cma
 import imageio
 import logging
@@ -53,7 +57,7 @@ def generate_params(initial_params={}):
     """
     z = initial_params.get("z", np.random.uniform(MIN_Z, MAX_Z))
     params = {"z": z}
-    max_trans = TAN_ANGLE * np.abs(CAMERA_DISTANCE - z)
+    max_trans = TAN_ANGLE * np.abs(CAMERA_DISTANCE - z) / 2 #  !!! BEFORE WAS max_trans = TAN_ANGLE * np.abs(CAMERA_DISTANCE - z)
     for trans_param in TRANS_PARAMS:
         if trans_param == "z":
             continue
@@ -61,6 +65,7 @@ def generate_params(initial_params={}):
             params[trans_param] = initial_params.get(
                 trans_param, np.random.uniform(-max_trans, max_trans)
             )
+
 
     for rot in ROTS:
         for rot_axis in ROT_AXES:
@@ -273,24 +278,19 @@ def run_z_random_search(params, min_z, max_z, iterations=100):
     best_params = None
     first_hit = -1
 
-    for current_iter in range(iterations):
-        logging.info(current_iter)
-
+    print("TARGET_CLASS: " + str(TARGET_CLASS))
+    # TODO - CHANGE THE LOGIC HERE
+    while first_hit == -1:
         (image, target_prob, max_prob, max_index) = evaluate_params(params)
-        if current_iter == 0:
-            start_prob = target_prob
-
-        if target_prob > best_prob:
-            best_iter = current_iter
-            best_prob = target_prob
-            best_params = params.copy()
 
         logging.info(target_prob)
         logging.info(start_prob)
         logging.info(best_prob)
-
-        if first_hit == -1 and max_index == TARGET_CLASS:
-            first_hit = current_iter
+        if first_hit == -1 and max_index != TARGET_CLASS and max_prob >= 0.9:
+            best_prob = target_prob
+            best_params = params.copy()
+            first_hit = 1
+            break
 
         z = np.random.uniform(min_z, max_z)
         params = generate_params({"z": z})
@@ -401,39 +401,115 @@ def run_cma_es(params, iterations=100):
     return (best_prob, best_iter, best_params, first_hit)
 
 
+CLASSES = {
+    "jeep": 609,
+    "tank": 847,
+    "car":817,
+    "plane":895,
+    "f1car":751,
+    "bus":779,
+    "train":466,
+    "heli":895,
+    "boat":403,
+    "ufo":812
+}
+
+MODELS_PATH = os.path.join(".", "3dmodels")
+IMAGES_NUMBER = 100
+DATASET_PATH = os.path.join("custom_dataset_v2")
+
+# Images naming convention:
+# <classname>_<object number>_i<iteration number>_y<yaw value>_p<pitch value>_r<roll value>.<ext e.x. jpg>
+# e.x. bus_1_3_y23_p-13_r_123.jpg
+
 if __name__ == "__main__":
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    MODEL = Model(device).to(device)
+    CRITERION = nn.CrossEntropyLoss()
     RENDERER = Renderer(
         OBJ_PATH, MTL_PATH, camera_distance=CAMERA_DISTANCE, angle_of_view=ANGLE_OF_VIEW
     )
+    dir_list = os.listdir(MODELS_PATH)
+    dirs = [path for path in dir_list if os.path.isdir(os.path.join(MODELS_PATH, path))]
+    os.makedirs(DATASET_PATH, exist_ok=True)
+    print(TOO_FAR)
+    print(dirs)
+    start_time = datetime.now()
+    for dir in dirs:
+        obj_path = ""
+        mtl_path = ""
+        for file in os.listdir(os.path.join(MODELS_PATH, dir)):
+            if file.endswith('.obj'):
+                obj_path = os.path.join(MODELS_PATH, dir, file)
+                print(f"Found: {os.path.join(MODELS_PATH, dir, file)}")
+            if file.endswith('.mtl'):
+                mtl_path = os.path.join(MODELS_PATH, dir, file)
+                print(f"Found: {os.path.join(MODELS_PATH, dir, file)}")
+        RENDERER.set_up_obj(obj_path, mtl_path)
+        print(dir)
+        class_name = dir.split("_")[0]
+        label_num = CLASSES[class_name]
+        TARGET_CLASS = label_num
+        print(f"Generating images for: {class_name} (class nr={label_num})")
+        LABELS = torch.LongTensor([label_num]).to(device)
+        LABEL_MAP = load_imagenet_label_map()
+        OPTIM="rs"
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    #device = torch.device("cpu")
-    MODEL = Model(device).to(device)
-    CRITERION = nn.CrossEntropyLoss()
-    LABELS = torch.LongTensor([TARGET_CLASS]).to(device)
-    LABEL_MAP = load_imagenet_label_map()
-
-    OPTIM="rs"
-    if OPTIM == "fd":
-        if INITIAL_PARAMS:
-            start_params = generate_params(INITIAL_PARAMS)
+        # v2
+        if dir.split("_")[-1] == "1":
+            IMAGES_NUMBER = 10
         else:
-            (start_params, start_loss, best_zs) = get_start_params()
+            IMAGES_NUMBER = 40
 
-        (best_prob, best_iter, best_params, first_hit) = run_finite_diff(
-            start_params.copy(), GIF_F
-        )
-    elif OPTIM == "zrs":
-        (start_params, start_loss, best_zs) = get_start_params()
-        (best_prob, best_iter, best_params, first_hit) = run_z_random_search(
-            start_params, best_zs["min_z"], best_zs["max_z"]
-        )
-    elif OPTIM == "rs":
-        start_params = generate_params()
-        (best_prob, best_iter, best_params, first_hit) = run_z_random_search(
-            start_params, MIN_Z, MAX_Z
-        )
-        print(best_params)
-    elif OPTIM == "cma_es":
-        (start_params, start_loss, best_zs) = get_start_params()
-        (best_prob, best_iter, best_params, first_hit) = run_cma_es(start_params)
+        for i in range(IMAGES_NUMBER):
+            if OPTIM == "fd":
+                if INITIAL_PARAMS:
+                    start_params = generate_params(INITIAL_PARAMS)
+                else:
+                    (start_params, start_loss, best_zs) = get_start_params()
+
+                (best_prob, best_iter, best_params, first_hit) = run_finite_diff(
+                    start_params.copy(), GIF_F
+                )
+            elif OPTIM == "zrs":
+                (start_params, start_loss, best_zs) = get_start_params()
+                (best_prob, best_iter, best_params, first_hit) = run_z_random_search(
+                    start_params, best_zs["min_z"], best_zs["max_z"]
+                )
+            elif OPTIM == "rs":
+                    start_params = generate_params()
+                    (best_prob, best_iter, best_params, first_hit) = run_z_random_search(
+                        start_params, MIN_Z, MAX_Z
+                    )
+            elif OPTIM == "cma_es":
+                (start_params, start_loss, best_zs) = get_start_params()
+                (best_prob, best_iter, best_params, first_hit) = run_cma_es(start_params)
+            else:
+                (start_params, start_loss, best_zs) = get_start_params()
+                (best_prob, best_iter, best_params, first_hit) = run_cma_es(start_params)
+
+            print(str(i) + str(best_params))
+            # Alter renderer parameters.
+            R_obj = gen_rotation_matrix(best_params["yaw_obj"], best_params["pitch_obj"], best_params["roll_obj"])
+            RENDERER.prog["R_obj"].write(R_obj.T.astype("f4").tobytes())
+            RENDERER.prog["x"].value = best_params["x"]
+            RENDERER.prog["y"].value = best_params["y"]
+            RENDERER.prog["z"].value = best_params["z"]
+            RENDERER.prog["amb_int"].value = 0.3
+            RENDERER.prog["dif_int"].value = 0.9
+            DirLight = np.array([1.0, 1.0, 1.0])
+            DirLight /= np.linalg.norm(DirLight)
+            RENDERER.prog["DirLight"].value = tuple(DirLight)
+
+            # Render new scene.
+            image = RENDERER.render()
+            yaw = int(math.degrees(best_params["yaw_obj"]))
+            pitch = int(math.degrees(best_params["pitch_obj"]))
+            roll = int(math.degrees(best_params["roll_obj"]))
+            print(f"Yaw:{yaw}, pitch:{pitch}, roll:{roll}")
+            image.save(os.path.join(DATASET_PATH, f"{dir}_i{i}_y{yaw}_p{pitch}_r{roll}.jpg"))
+    finish_time = datetime.now()
+    print("Start  Time:", start_time.strftime("%H:%M:%S"))
+    print("Finish Time:", finish_time.strftime("%H:%M:%S"))
+
+

@@ -40,7 +40,7 @@ def parse_obj_file(input_obj):
         parts = line.split()
         elem_type = parts[0]
         if elem_type in data:
-            vals = np.array(parts[1:4], dtype=np.float)
+            vals = np.array(parts[1:4], dtype=np.float32)
             if elem_type == "v":
                 min_vec = np.minimum(min_vec, vals)
                 max_vec = np.maximum(max_vec, vals)
@@ -48,7 +48,7 @@ def parse_obj_file(input_obj):
                 vals /= np.linalg.norm(vals)
             elif elem_type == "vt":
                 if len(vals) < 3:
-                    vals = np.array(list(vals) + [0.0], dtype=np.float)
+                    vals = np.array(list(vals) + [0.0], dtype=np.float32)
 
             data[elem_type].append(vals)
         elif elem_type == "f":
@@ -125,7 +125,7 @@ def parse_mtl_file(input_mtl):
         parts = line.split()
         elem_type = parts[0]
         if elem_type in vector_elems:
-            vals = np.array(parts[1:4], dtype=np.float)
+            vals = np.array(parts[1:4], dtype=np.float32)
             mtl_infos[current_mtl][elem_type] = tuple(vals)
         elif elem_type in float_elems:
             mtl_infos[current_mtl][elem_type] = float(parts[1])
@@ -436,10 +436,12 @@ class Renderer:
         for render_obj in self.render_objs:
             if self.prog["use_texture"].value:
                 self.prog["amb_rgb"].value = self.mtl_infos[render_obj]["Ka"]
-                self.prog["dif_rgb"].value = self.mtl_infos[render_obj]["Kd"]
+                if "Kd" in self.mtl_infos[render_obj]:
+                    self.prog["dif_rgb"].value = self.mtl_infos[render_obj]["Kd"]
                 if self.use_spec:
                     self.prog["spc_rgb"].value = self.mtl_infos[render_obj]["Ks"]
-                    self.prog["spec_exp"].value = self.mtl_infos[render_obj]["Ns"]
+                    if "Ns" in self.mtl_infos[render_obj]:
+                        self.prog["spec_exp"].value = self.mtl_infos[render_obj]["Ns"]
                 else:
                     self.prog["spc_rgb"].value = (0.0, 0.0, 0.0)
 

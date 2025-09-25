@@ -1,0 +1,8 @@
+Changes made by Bartłomiej Szczepaniec
+
+Updated requirements and renderer so it is possible to use the newest CUDA version and Python 3.9.2
+
+Added files generate_dataset.py and generate_smaller_dataset_from_v2.py were used to generate my custom dataset based on the 3D models from ./3dmodels directory.
+
+
+Original repository: https://github.com/airalcorn2/strike-with-a-pose
